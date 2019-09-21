@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: sdn-controller
+  namespace: kube-system
+  labels:
+    tier: sdn
+    app: sdn-controller
+spec:
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      tier: sdn
+      app: sdn-controller
+  template:
+    metadata:
+      name: sdn-controller
+      labels:
+        tier: sdn
+        app: sdn-controller
+    spec:
+      tolerations:
+      - effect: NoSchedule
+        key: node.kubernetes.io/unschedulable
+        operator: Exists
+      - effect: NoSchedule
+        key: node.certascale.io/not-ready
+        operator: Exists
+      - effect: NoSchedule
+        key: node.certascale.io/cordon
+        operator: Exists
+      priorityClassName: "system-node-critical"
+      hostNetwork: true
+      hostPID: true
+      containers:
+      - name: sdn-controller
+        image: sdn-controller
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: netns
+          mountPath: /var/run/netns
+          readOnly: false
+      volumes:
+      - name: netns
+        hostPath:
+          path: /var/run/netns
