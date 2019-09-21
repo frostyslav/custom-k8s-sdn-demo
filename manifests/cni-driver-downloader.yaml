@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cni-driver
+spec:
+  template:
+    spec:
+      hostNetwork: true
+      containers:
+      - name: cni-driver-downloader
+        image: cni-driver-downloader
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: cni-conf
+          mountPath: /etc/cni/net.d
+          readOnly: false
+        - name: cni-bin
+          mountPath: /opt/cni/bin
+          readOnly: false
+      restartPolicy: Never
+      volumes:
+      - name: cni-conf
+        hostPath:
+          path: /etc/cni/net.d
+      - name: cni-bin
+        hostPath:
+          path: /opt/cni/bin
+  backoffLimit: 4
