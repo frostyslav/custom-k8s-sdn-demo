@@ -14,6 +14,6 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -y \
     && DEBIAN_FRONTEND=noninteractive apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-ADD scripts/sdn-controller.sh /opt/bin/sdn-controller.sh
+ADD sdn-controller.sh /opt/bin/sdn-controller.sh
 
 CMD ["bash", "/opt/bin/sdn-controller.sh"]
