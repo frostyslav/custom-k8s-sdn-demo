@@ -3,6 +3,10 @@
 BRIDGE_NAME=
 BRIDGE_ADDRESS=
 
+log() {
+    echo "$(date): $1"
+}
+
 parse_params() {
     if [ -z "$BRIDGE_NAME" ]; then
         BRIDGE_NAME=bridge0
@@ -75,7 +79,7 @@ network_address_to_ips() {
 }
 
 next_available_ip() {
-    used_addresses=$(curl 127.0.0.1:8080/api/v1/pods | jq -r .items[].status.podIP | sort -V | uniq)
+    used_addresses=$(curl -s 127.0.0.1:8080/api/v1/pods | jq -r .items[].metadata.annotations.network | jq -r .ip | sort -V | uniq)
     network_address_to_ips $BRIDGE_ADDRESS
     bridge_ip=$(echo $BRIDGE_ADDRESS | awk -F/ '{print $1}')
     AVAILABLE_IP=
@@ -103,7 +107,7 @@ watch() {
         nodeName=$(echo $line | jq -M -r .object.spec.nodeName)
 
         if [ $nodeName != $(hostname) ]; then
-            echo "Skip event from external node: $nodeName"
+            log "Skip event from external node: $nodeName"
             continue
         fi
 
@@ -111,7 +115,15 @@ watch() {
         podName=$(echo $line | jq -M -r .object.metadata.name)
         podNamespace=$(echo $line | jq -M -r .object.metadata.namespace)
 
-        if [ $eventType = "ADDED" ]; then
+        log "Handling event with type: $eventType, pod name: $podName, pod namespace: $podNamespace"
+        hostNetwork=$(echo $line | jq -M -r .object.spec.hostNetwork)
+
+        if [ "$hostNetwork" = "true" ]; then
+            log "Skip event $eventType from pod with host network: $podNamespace/$podName"
+            continue
+        fi
+
+        if [ "$eventType" = "ADDED" ] || [ "$eventType" = "MODIFIED" ]; then
             MAC=$(gen_mac)
             IFNAME=eth0
             IP=$(next_available_ip)
@@ -120,9 +132,10 @@ watch() {
 
             annotations=$(echo $line | jq -M -r .object.metadata.annotations.network)
             if [ -z $annotations ] || [ $annotations = "null" ]; then
-                data=$(jq -c -M -n --arg mac "$MAC" --arg ip "$IP" --arg mask "$MASK" --arg gw "$GW" --arg ifname "$IFNAME" --arg brname "$BRIDGE_NAME" '{"mac":$mac,"ip":$ip,"mask":$mask,"gateway":$gw,"name":$ifname,"bridge_name":$br_name}' | sed 's%"%\\\"%g')
-                patch="[{\"op\":\"add\",\"path\":\"/metadata/annotations/network\",\"value\": \"$data\"}]"
-                curl --header "Content-Type: application/json-patch+json" --data "$patch" -X PATCH http://127.0.0.1:8080/api/v1/namespaces/$podNamespace/pods/$podName
+                data=$(jq -c -M -n --arg mac "$MAC" --arg ip "$IP" --arg mask "$MASK" --arg gw "$GW" --arg ifname "$IFNAME" --arg brname "$BRIDGE_NAME" '{"mac":$mac,"ip":$ip,"mask":$mask,"gateway":$gw,"interface_name":$ifname,"bridge_name":$brname}' | sed 's%"%\\\"%g')
+                log "Configure pod $podNamespace/$podName with $data"
+                patch="[{\"op\":\"add\",\"path\":\"/metadata/annotations\",\"value\": {\"network\":\"$data\"}}]"
+                curl -s --header "Content-Type: application/json-patch+json" --data "$patch" -X PATCH http://127.0.0.1:8080/api/v1/namespaces/$podNamespace/pods/$podName
             fi
         fi
 

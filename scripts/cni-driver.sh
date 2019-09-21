@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -e
 
 SPEC_VERSION=0.4.0
 
@@ -12,7 +13,7 @@ exit_and_log() {
     code=$1
     short_message=$2
     long_message=$3
-    echo "$long_message" >> $LOG_FILE
+    echo "$(date): $long_message" >> $LOG_FILE
 
     jq -M -n --arg version "$SPEC_VERSION" --arg code "$code" --arg msg "$short_message" --arg details "$long_message" \
     '{
@@ -23,6 +24,10 @@ exit_and_log() {
     }'
 
     exit $code
+}
+
+log() {
+    echo "$(date): $1" >> $LOG_FILE
 }
 
 parse_params() {
@@ -124,6 +129,7 @@ version() {
 }
 
 get_config() {
+    log "get network config: pod $K8S_POD_NAMESPACE/$K8S_POD_NAME, netns $CNI_NETNS, container $K8S_POD_INFRA_CONTAINER_ID"
     network_data=$(curl 127.0.0.1:8080/api/v1/namespaces/$K8S_POD_NAMESPACE/pods/$K8S_POD_NAME | jq -r .metadata.annotations.network)
 }
 
@@ -142,33 +148,46 @@ if [ "$CNI_COMMAND" = "VERSION" ]; then
 fi
 
 if [ "$CNI_COMMAND" = "ADD" ]; then
+    log "add: pod $K8S_POD_NAMESPACE/$K8S_POD_NAME, netns $CNI_NETNS, container $K8S_POD_INFRA_CONTAINER_ID"
     get_config
 
-    bridge_name=$(jq -rn --argjson data $network_data '$data.bridge')
+    log "parse network config: pod $K8S_POD_NAMESPACE/$K8S_POD_NAME, netns $CNI_NETNS, container $K8S_POD_INFRA_CONTAINER_ID"
+    bridge_name=$(jq -rn --argjson data $network_data '$data.bridge_name')
     mac=$(jq -rn --argjson data $network_data '$data.mac')
     ip=$(jq -rn --argjson data $network_data '$data.ip')
     mask=$(jq -rn --argjson data $network_data '$data.mask')
     cidr=$(mask2cdr $mask)
     gw=$(jq -rn --argjson data $network_data '$data.gateway')
-    ifname=$(jq -rn --argjson data $network_data '$data.ifname')
-
+    ifname=$(jq -rn --argjson data $network_data '$data.interface_name')
 
     veth_external=$(echo "$K8S_POD_INFRA_CONTAINER_ID" | cut -c 1-15)
     veth_internal=$(echo $(echo "$K8S_POD_INFRA_CONTAINER_ID" | cut -c 1-13)_c)
     if ! ip -o link | grep -q "$veth_external"; then
+        log "create veth pair: pod $K8S_POD_NAMESPACE/$K8S_POD_NAME, netns $CNI_NETNS, container $K8S_POD_INFRA_CONTAINER_ID"
         ip link add dev "$veth_external" type veth peer name "$veth_internal"
+        log "bring veth external up: pod $K8S_POD_NAMESPACE/$K8S_POD_NAME, netns $CNI_NETNS, container $K8S_POD_INFRA_CONTAINER_ID"        
         ip link set dev "$veth_external" up
+        log "add veth external to bridge: pod $K8S_POD_NAMESPACE/$K8S_POD_NAME, netns $CNI_NETNS, container $K8S_POD_INFRA_CONTAINER_ID"        
         ip link set dev "$veth_external" master $bridge_name
-        ip link set "$veth_internal" netns "$NETNS"
-        ip netns exec "$NETNS" ip link set dev "$veth_internal" name "$ifname"
-        ip netns exec "$NETNS" ip link set dev "$ifname" up
+        log "configure veth internal: pod $K8S_POD_NAMESPACE/$K8S_POD_NAME, netns $CNI_NETNS, container $K8S_POD_INFRA_CONTAINER_ID"        
+        ip link set "$veth_internal" netns "$CNI_NETNS" >> $LOG_FILE 2>&1
+        log "create symlink to /var/run/netns: pod $K8S_POD_NAMESPACE/$K8S_POD_NAME, netns $CNI_NETNS, container $K8S_POD_INFRA_CONTAINER_ID"        
+        ln -s $CNI_NETNS /var/run/netns/$NETNS
+        log "rename veth internal to $ifname: pod $K8S_POD_NAMESPACE/$K8S_POD_NAME, netns $CNI_NETNS, container $K8S_POD_INFRA_CONTAINER_ID"  
+        ip netns exec "$NETNS" ip link set dev "$veth_internal" name "$ifname" >> $LOG_FILE 2>&1
+        log "bring $ifname up: pod $K8S_POD_NAMESPACE/$K8S_POD_NAME, netns $CNI_NETNS, container $K8S_POD_INFRA_CONTAINER_ID"        
+        ip netns exec "$NETNS" ip link set dev "$ifname" up >> $LOG_FILE 2>&1
     fi
 
+    log "configure $ifname mac address $mac: pod $K8S_POD_NAMESPACE/$K8S_POD_NAME, netns $CNI_NETNS, container $K8S_POD_INFRA_CONTAINER_ID"        
     ip netns exec "$NETNS" ip link set dev "$ifname" address "$mac"
+    log "configure $ifname ip address $ip/$cidr: pod $K8S_POD_NAMESPACE/$K8S_POD_NAME, netns $CNI_NETNS, container $K8S_POD_INFRA_CONTAINER_ID"        
     ip netns exec "$NETNS" ip a add "$ip/$cidr" dev "$ifname"
+    log "configure $ifname default gateway $gw: pod $K8S_POD_NAMESPACE/$K8S_POD_NAME, netns $CNI_NETNS, container $K8S_POD_INFRA_CONTAINER_ID"        
     ip netns exec "$NETNS" ip route add default via "$gw" dev "$ifname"
 
-    jq -M -n --arg version "$SPEC_VERSION" --arg ifname "$CNI_IFNAME" --arg mac "$MAC" --arg address "$ip/$cidr" --arg address gw "$gw" --arg netns "$CNI_NETNS" \
+    log "output result: pod $K8S_POD_NAMESPACE/$K8S_POD_NAME, netns $CNI_NETNS, container $K8S_POD_INFRA_CONTAINER_ID"        
+    jq -M -n --arg version "$SPEC_VERSION" --arg ifname "$CNI_IFNAME" --arg mac "$MAC" --arg address "$ip/$cidr" --arg gw "$gw" --arg netns "$CNI_NETNS" \
         '{
             "cniVersion": $version,
             "interfaces": [
