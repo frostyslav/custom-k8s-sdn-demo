@@ -9,6 +9,8 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -y \
         ca-certificates \
         curl \
         jq \
+        iproute2 \
+        iptables \
     && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
     && DEBIAN_FRONTEND=noninteractive apt-get autoremove -y \
     && DEBIAN_FRONTEND=noninteractive apt-get clean \

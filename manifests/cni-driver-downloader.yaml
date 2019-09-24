@@ -5,6 +5,13 @@ metadata:
 spec:
   template:
     spec:
+      tolerations:
+      - effect: NoSchedule
+        key: node.kubernetes.io/not-ready
+        operator: Exists
+      - effect: NoExecute
+        key: node.kubernetes.io/not-ready
+        operator: Exists
       hostNetwork: true
       containers:
       - name: cni-driver-downloader

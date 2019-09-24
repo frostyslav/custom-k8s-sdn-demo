@@ -1,8 +1,5 @@
 #!/bin/bash
 
-BRIDGE_NAME=
-BRIDGE_ADDRESS=
-
 log() {
     echo "$(date): $1"
 }
@@ -14,6 +11,9 @@ parse_params() {
     if [ -z "$BRIDGE_ADDRESS" ]; then
         BRIDGE_ADDRESS=192.168.5.1/24
     fi
+    if [ -z "$NAT_INTERFACE" ]; then
+        NAT_INTERFACE=eth0
+    fi
 }
 
 create_bridge() {
@@ -21,6 +21,19 @@ create_bridge() {
         ip link add dev $BRIDGE_NAME type bridge
         ip addr add $BRIDGE_ADDRESS dev $BRIDGE_NAME
         ip link set dev $BRIDGE_NAME up
+    fi
+}
+
+enable_nat() {
+    echo 1 > /proc/sys/net/ipv4/ip_forward
+    if ! iptables-legacy -C FORWARD -i $BRIDGE_NAME -o $NAT_INTERFACE -j ACCEPT > /dev/null 2>&1; then
+        iptables-legacy -A FORWARD -i $BRIDGE_NAME -o $NAT_INTERFACE -j ACCEPT
+    fi
+    if ! iptables-legacy -C FORWARD -i $NAT_INTERFACE -o $BRIDGE_NAME -m state --state ESTABLISHED,RELATED -j ACCEPT > /dev/null 2>&1; then
+        iptables-legacy -A FORWARD -i $NAT_INTERFACE -o $BRIDGE_NAME -m state --state ESTABLISHED,RELATED -j ACCEPT
+    fi
+    if ! iptables-legacy -t nat -C POSTROUTING -o $NAT_INTERFACE -j MASQUERADE > /dev/null 2>&1; then
+        iptables-legacy -t nat -A POSTROUTING -o $NAT_INTERFACE -j MASQUERADE
     fi
 }
 
@@ -139,15 +152,10 @@ watch() {
             fi
         fi
 
-    done < <(curl -s 127.0.0.1:8080/api/v1/namespaces/kube-system/pods?watch=true)
+    done < <(curl -s 127.0.0.1:8080/api/v1/pods?watch=true)
 }
 
 parse_params
 create_bridge
+enable_nat
 watch
-
-
-# echo 1 > /proc/sys/net/ipv4/ip_forward
-# iptables -A FORWARD -i bridge0 -o eth0 -j ACCEPT
-# iptables -A FORWARD -i eth0 -o bridge0 -m state --state ESTABLISHED,RELATED -j ACCEPT
-# iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
