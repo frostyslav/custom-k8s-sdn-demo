@@ -51,3 +51,7 @@ kubectl apply -f manifests/cni-driver-downloader.yaml
 ```bash
 kubectl apply -f manifests/sdn-controller.yaml
 ```
+
+## Diagram
+
+![Alt](images/diagram.svg)
