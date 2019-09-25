@@ -52,6 +52,12 @@ kubectl apply -f manifests/cni-driver-downloader.yaml
 kubectl apply -f manifests/sdn-controller.yaml
 ```
 
+## Test
+
+```bash
+kubectl apply -f https://k8s.io/examples/application/deployment.yaml
+```
+
 ## Diagram
 
 ![Alt](images/diagram.svg)
